@@ -1,9 +1,6 @@
 package com.furzefield.service;
 
-import com.furzefield.model.Booking;
-import com.furzefield.model.Lesson;
-import com.furzefield.model.Member;
-import com.furzefield.model.TimeSlot;
+import com.furzefield.model.*;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +16,7 @@ public class BookingSystem
     {
         this.members = new ArrayList<>();
         this.lessons = new ArrayList<>();
+        this.bookings = new ArrayList<>();
         this.bookingCounter = 1;
     }
 
@@ -123,34 +121,174 @@ public class BookingSystem
         return "B" + String.format("%03d",bookingCounter++);
     }
 
-    public boolean bookLesson(String memberId, String lessonId)
+    public String bookLesson(String memberId, String lessonId)
     {
-        return false;
+        // Check member exists
+        Member member = findMemberById(memberId);
+        if (member == null){
+            return "ERROR: Member ID" + memberId + "not found.";
+        }
+
+        // Check lesson exists
+        Lesson lesson = findLessonById(lessonId);
+        if (lesson == null){
+            return "ERROR: Lesson ID" + lessonId + "not found";
+        }
+
+        // Check capacity
+        if (!lesson.hasSpace()) {
+            return "ERROR: Sorry, lesson" + lessonId + "is fully booked (max 4 members)";
+        }
+
+        // Check duplicate booking - same member, same lesson
+        for (Booking b : bookings) {
+            boolean sameLesson = b.getLesson().getLessonId().equals(lessonId);
+            boolean sameMember = b.getMember().getMemberId().equals(memberId);
+            boolean notCancelled = b.getStatus() != BookingStatus.CANCELLED;
+            if (sameLesson && sameMember && notCancelled) {
+                return "ERROR: You have already booked this lesson";
+            }
+        }
+
+        // All checks passed - create booking
+        String bookingId = generateBookingId();
+        Booking booking = new Booking(bookingId,member,lesson);
+        bookings.add(booking);
+        member.addBooking(booking);
+        lesson.incrementBookedCount();
+
+        return "SUCCESS: Booking confirmed! Your booking ID is " + bookingId + ",";
     }
 
-    public boolean changeBooking(String bookingId, String newLessonId)
+    public String changeBooking(String bookingId, String newLessonId)
     {
-        return false;
+        // Check booking exists
+        Booking booking = findBookingById(bookingId);
+        if (booking == null) {
+            return "ERROR: Booking ID " + bookingId + "not found.";
+        }
+
+        // Check booking is not cancelled or attended
+        if (booking.getStatus() == BookingStatus.CANCELLED) {
+            return "ERROR: This lesson has been cancelled and cannot be changed.";
+        }
+        if (booking.getStatus() == BookingStatus.ATTENDED) {
+            return "ERROR: This lesson has already been attended and cannot be changed.";
+        }
+
+        // Check new lesson exists
+        Lesson newLesson = findLessonById(newLessonId);
+        if (newLesson == null) {
+            return "ERROR: Lesson ID " + newLessonId + "not found.";
+        }
+
+        // Check it's not the same lesson
+        if (booking.getLesson().getLessonId().equals(newLessonId)) {
+            return "ERROR: You are already booked into this lesson.";
+        }
+
+        // Check new lesson has space
+        if (!newLesson.hasSpace()) {
+            return "ERROR: Sorry, lesson" + newLessonId + "is fully booked (max 4 members).";
+        }
+
+        // Check duplicate - same member already booked in new lesson
+        String memberId = booking.getMember().getMemberId();
+        for (Booking b : bookings) {
+            boolean sameLesson = b.getLesson().getLessonId().equals(newLessonId);
+            boolean sameMember = b.getMember().getMemberId().equals(memberId);
+            boolean notCancelled = b.getStatus() != BookingStatus.CANCELLED;
+            if (sameLesson && sameMember && notCancelled) {
+                return "ERROR: You already have a booking for that lesson";
+            }
+        }
+
+        // All checks passed - release old lesson, assign new lesson
+        booking.getLesson().decrementBookedCount();
+        booking.setLesson(newLesson);
+        booking.setStatus(BookingStatus.CHANGED);
+        newLesson.incrementBookedCount();
+
+        return "SUCCESS: Booking " + bookingId + "changed to lesson" + newLessonId;
     }
 
-    public boolean cancelBooking(String bookingId)
+    public String cancelBooking(String bookingId)
     {
-        return false;
+        // Check booking exists
+        Booking booking = findBookingById((bookingId));
+        if (booking == null) {
+            return "ERROR: Booking ID " + bookingId + "not found";
+        }
+
+        // Check not already cancelled
+        if (booking.getStatus() == BookingStatus.CANCELLED) {
+            return "ERROR: This booking is already cancelled.";
+        };
+
+        //Check not already attended
+        if (booking.getStatus() == BookingStatus.ATTENDED) {
+            return "ERROR: Cannot cancel a lesson that has alreday been attended";
+        }
+
+        // All checks passed - cancel and release place
+        booking.getLesson().decrementBookedCount();
+        booking.setStatus(BookingStatus.CANCELLED);
+        booking.getMember().removeBooking(booking);
+
+        return "SUCCESS:  Booking " + bookingId + " has been cancelled";
     }
 
-    public boolean attendLesson(String bookingId, String review, int rating)
+    public String attendLesson(String bookingId, String review, int rating)
     {
-        return false;
+        // Check booking exists
+        Booking booking = findBookingById(bookingId);
+        if (booking == null) {
+            return "ERROR: Booking ID " + bookingId + "not found";
+        }
+
+        // Check not cancelled
+        if (booking.getStatus() == BookingStatus.CANCELLED) {
+            return "ERROR: This booking has been cancelled";
+        }
+
+        // Check already attended
+        if (booking.getStatus() == BookingStatus.ATTENDED) {
+            return "ERROR: You have already attended this lesson";
+        }
+
+        // Check rating is valid
+        if (rating < 1 || rating > 5) {
+            return "ERROR: Rating must be between 1 and 5";
+        }
+
+        // All checks passed - mark as attended
+        booking.setStatus(BookingStatus.ATTENDED);
+        booking.setReview(review);
+        booking.setRating(rating);
+
+        return "SUCCESS: Lesson attended: Thank you for your review";
     }
 
     public List<Lesson> getLessonsByDay(String day)
     {
-        return new ArrayList<>();
+        List<Lesson> result = new ArrayList<>();
+        for (Lesson l : lessons) {
+            if (l.getDay().equalsIgnoreCase(day)) {
+                result.add(l);
+            }
+        }
+        return result;
     }
 
     public List<Lesson> getLessonsByExerciseType(String exerciseType)
     {
-        return new ArrayList<>();
+        List<Lesson> result = new ArrayList<>();
+        for (Lesson l : lessons) {
+            if (l.getExcerciseType().equalsIgnoreCase(exerciseType)) {
+                result.add(l);
+            }
+        }
+        return result;
     }
 
     public List<Member> getMembers() {
